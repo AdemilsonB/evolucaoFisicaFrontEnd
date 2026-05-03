@@ -50,17 +50,37 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _navigateAfterLogin(AuthSession session) {
-    final route = session.onboardingPendente ? AppRouter.onboarding : AppRouter.home;
+    final route = session.onboardingPendente
+        ? AppRouter.onboarding
+        : AppRouter.home;
     Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
+  }
+
+  void _showForgotPasswordDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Recuperacao de senha'),
+          content: const Text(
+            'O fluxo de recuperacao ainda nao esta exposto pelo back-end atual. Enquanto isso, valide o email/senha cadastrados ou solicite apoio administrativo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Fechar'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -79,9 +99,8 @@ class _LoginPageState extends State<LoginPage> {
                     children: [
                       Text(
                         'Evolucao Fisica',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -101,9 +120,7 @@ class _LoginPageState extends State<LoginPage> {
                       TextField(
                         controller: controller.senhaController,
                         obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Senha',
-                        ),
+                        decoration: const InputDecoration(labelText: 'Senha'),
                       ),
                       const SizedBox(height: 16),
                       if (controller.erro != null)
@@ -122,6 +139,25 @@ class _LoginPageState extends State<LoginPage> {
                           controller.carregando ? 'Entrando...' : 'Entrar',
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: controller.carregando
+                            ? null
+                            : () {
+                                Navigator.of(
+                                  context,
+                                ).pushNamed(AppRouter.register);
+                              },
+                        child: const Text('Cadastrar usuario'),
+                      ),
+                      if (controller.erro != null)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _showForgotPasswordDialog,
+                            child: const Text('Esqueceu a senha?'),
+                          ),
+                        ),
                       const SizedBox(height: 16),
                       Text(
                         'API atual: ${AppConfig.apiBaseUrl}',

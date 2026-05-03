@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../features/admin/presentation/pages/admin_page.dart';
+import '../features/auth/presentation/pages/register_page.dart';
 import '../core/di/app_dependencies.dart';
 import '../features/auth/presentation/pages/login_page.dart';
 import '../features/dashboard/presentation/pages/home_page.dart';
 import '../features/onboarding/presentation/pages/onboarding_page.dart';
+import '../features/workout/presentation/pages/workout_planner_page.dart';
 
 class AppRouter {
   static const login = '/login';
+  static const register = '/register';
   static const onboarding = '/onboarding';
   static const home = '/home';
   static const admin = '/admin';
+  static const workouts = '/workouts';
 
   static String initialRoute(AppDependencies dependencies) {
     final session = dependencies.authRepository.currentSession;
@@ -27,6 +31,11 @@ class AppRouter {
           builder: (_) => const LoginPage(),
           settings: settings,
         );
+      case register:
+        return MaterialPageRoute<void>(
+          builder: (_) => const RegisterPage(),
+          settings: settings,
+        );
       case onboarding:
         return MaterialPageRoute<void>(
           builder: (_) => const OnboardingPage(),
@@ -40,6 +49,11 @@ class AppRouter {
       case admin:
         return MaterialPageRoute<void>(
           builder: (_) => const AdminPage(),
+          settings: settings,
+        );
+      case workouts:
+        return MaterialPageRoute<void>(
+          builder: (_) => const WorkoutPlannerPage(),
           settings: settings,
         );
       default:
