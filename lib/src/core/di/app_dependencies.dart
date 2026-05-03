@@ -1,4 +1,4 @@
-import '../../features/auth/data/models/auth_session.dart';
+import '../../features/admin/data/repositories/admin_repository.dart';
 import '../../features/auth/data/repositories/auth_repository.dart';
 import '../../features/dashboard/data/repositories/dashboard_repository.dart';
 import '../../features/onboarding/data/repositories/onboarding_repository.dart';
@@ -10,6 +10,7 @@ class AppDependencies {
     required this.tokenStorage,
     required this.apiClient,
     required this.authRepository,
+    required this.adminRepository,
     required this.onboardingRepository,
     required this.dashboardRepository,
   });
@@ -17,6 +18,7 @@ class AppDependencies {
   final AuthTokenStorage tokenStorage;
   final ApiClient apiClient;
   final AuthRepository authRepository;
+  final AdminRepository adminRepository;
   final OnboardingRepository onboardingRepository;
   final DashboardRepository dashboardRepository;
 
@@ -34,6 +36,7 @@ class AppDependencies {
       tokenStorage: tokenStorage,
       apiClient: apiClient,
       authRepository: authRepository,
+      adminRepository: AdminRepository(apiClient: apiClient),
       onboardingRepository: OnboardingRepository(apiClient: apiClient),
       dashboardRepository: DashboardRepository(apiClient: apiClient),
     );

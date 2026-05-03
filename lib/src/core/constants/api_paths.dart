@@ -12,8 +12,13 @@ class ApiPaths {
   static const registrosDiarios = '/api/gamificacao/registros-diarios';
   static const rankingGeral = '/api/gamificacao/ranking/geral';
   static const social = '/api/social';
+  static const adminGamificacao = '/api/admin/gamificacao';
+  static const adminXpRules = '$adminGamificacao/xp-regras';
+  static const adminMedals = '$adminGamificacao/medalhas';
+  static const adminWeeklyMissions = '$adminGamificacao/missoes-semanais';
 
-  static String onboarding(int usuarioId) => '/api/usuarios/$usuarioId/onboarding';
+  static String onboarding(int usuarioId) =>
+      '/api/usuarios/$usuarioId/onboarding';
 
   static String metasAtleta(int usuarioId) => '/api/usuarios/$usuarioId/metas';
 

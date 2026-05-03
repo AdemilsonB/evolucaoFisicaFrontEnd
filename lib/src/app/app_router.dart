@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../features/admin/presentation/pages/admin_page.dart';
 import '../core/di/app_dependencies.dart';
 import '../features/auth/presentation/pages/login_page.dart';
 import '../features/dashboard/presentation/pages/home_page.dart';
@@ -9,6 +10,7 @@ class AppRouter {
   static const login = '/login';
   static const onboarding = '/onboarding';
   static const home = '/home';
+  static const admin = '/admin';
 
   static String initialRoute(AppDependencies dependencies) {
     final session = dependencies.authRepository.currentSession;
@@ -33,6 +35,11 @@ class AppRouter {
       case home:
         return MaterialPageRoute<void>(
           builder: (_) => const HomePage(),
+          settings: settings,
+        );
+      case admin:
+        return MaterialPageRoute<void>(
+          builder: (_) => const AdminPage(),
           settings: settings,
         );
       default:

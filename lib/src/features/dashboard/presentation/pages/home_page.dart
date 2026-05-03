@@ -33,10 +33,7 @@ class _HomePageState extends State<HomePage> {
       session.user.id,
     );
     final ranking = await dependencies.dashboardRepository.loadRankingGeral();
-    return _HomeData(
-      dashboard: dashboard,
-      ranking: ranking.take(5).toList(),
-    );
+    return _HomeData(dashboard: dashboard, ranking: ranking.take(5).toList());
   }
 
   Future<void> _logout() async {
@@ -44,7 +41,9 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) {
       return;
     }
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRouter.login, (_) => false);
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(AppRouter.login, (_) => false);
   }
 
   @override
@@ -56,10 +55,9 @@ class _HomePageState extends State<HomePage> {
         body: Center(
           child: ElevatedButton(
             onPressed: () {
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                AppRouter.login,
-                (_) => false,
-              );
+              Navigator.of(
+                context,
+              ).pushNamedAndRemoveUntil(AppRouter.login, (_) => false);
             },
             child: const Text('Voltar para login'),
           ),
@@ -98,6 +96,7 @@ class _HomePageState extends State<HomePage> {
           }
 
           final data = snapshot.requireData;
+          final canManage = _canOpenAdmin(session.user.roleSistema);
 
           return RefreshIndicator(
             onRefresh: () async {
@@ -111,6 +110,38 @@ class _HomePageState extends State<HomePage> {
               children: [
                 _MetricGrid(dashboard: data.dashboard),
                 const SizedBox(height: 20),
+                if (canManage) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Area administrativa',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Cadastre exercicios, alimentos, treinos, planos alimentares e regras de gamificacao a partir dos contratos do back-end.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pushNamed(AppRouter.admin);
+                            },
+                            icon: const Icon(
+                              Icons.admin_panel_settings_outlined,
+                            ),
+                            label: const Text('Abrir painel admin'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(20),
@@ -175,6 +206,10 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+bool _canOpenAdmin(String? roleSistema) {
+  return roleSistema == 'ADMIN' || roleSistema == 'GESTOR';
+}
+
 class _MetricGrid extends StatelessWidget {
   const _MetricGrid({required this.dashboard});
 
@@ -198,10 +233,7 @@ class _MetricGrid extends StatelessWidget {
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-  });
+  const _MetricCard({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -216,16 +248,13 @@ class _MetricCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+              Text(label, style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 10),
               Text(
                 value,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
@@ -247,10 +276,7 @@ class _FeatureChip extends StatelessWidget {
 }
 
 class _HomeData {
-  const _HomeData({
-    required this.dashboard,
-    required this.ranking,
-  });
+  const _HomeData({required this.dashboard, required this.ranking});
 
   final DashboardOverview dashboard;
   final List<RankingEntry> ranking;
