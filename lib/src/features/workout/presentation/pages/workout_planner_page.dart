@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 
 import '../../../../core/di/app_scope.dart';
 import '../../../admin/data/models/admin_models.dart';
+import '../../data/models/workout_models.dart';
+import 'workout_plan_detail_page.dart';
 
 class WorkoutPlannerPage extends StatefulWidget {
   const WorkoutPlannerPage({super.key});
@@ -11,11 +13,16 @@ class WorkoutPlannerPage extends StatefulWidget {
   State<WorkoutPlannerPage> createState() => _WorkoutPlannerPageState();
 }
 
-class _WorkoutPlannerPageState extends State<WorkoutPlannerPage> {
+class _WorkoutPlannerPageState extends State<WorkoutPlannerPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
   bool _loading = true;
+  bool _orderingWorkouts = false;
   String? _error;
   List<AdminWorkout> _workouts = const [];
   List<AdminExercise> _exercises = const [];
+  List<WorkoutRecord> _records = const [];
 
   int get _userId =>
       AppScope.of(context).authRepository.currentSession!.user.id;
@@ -23,9 +30,16 @@ class _WorkoutPlannerPageState extends State<WorkoutPlannerPage> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _load();
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -35,18 +49,25 @@ class _WorkoutPlannerPageState extends State<WorkoutPlannerPage> {
     });
 
     try {
-      final repository = AppScope.of(context).adminRepository;
+      final repository = AppScope.of(context).workoutRepository;
       final results = await Future.wait([
         repository.loadWorkouts(_userId),
         repository.loadExercises(),
+        repository.loadRecords(
+          usuarioId: _userId,
+          start: DateTime.now().subtract(const Duration(days: 180)),
+          end: DateTime.now().add(const Duration(days: 1)),
+        ),
       ]);
 
       if (!mounted) {
         return;
       }
+
       setState(() {
         _workouts = results[0] as List<AdminWorkout>;
         _exercises = results[1] as List<AdminExercise>;
+        _records = results[2] as List<WorkoutRecord>;
         _loading = false;
       });
     } catch (error) {
@@ -60,8 +81,20 @@ class _WorkoutPlannerPageState extends State<WorkoutPlannerPage> {
     }
   }
 
+  Future<void> _openWorkout(AdminWorkout workout) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => WorkoutPlanDetailPage(
+          workoutId: workout.id,
+          initialWorkout: workout,
+        ),
+      ),
+    );
+    await _load();
+  }
+
   Future<void> _createWorkout() async {
-    final repository = AppScope.of(context).adminRepository;
+    final repository = AppScope.of(context).workoutRepository;
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => _WorkoutDialog(userId: _userId),
@@ -69,57 +102,30 @@ class _WorkoutPlannerPageState extends State<WorkoutPlannerPage> {
     if (!mounted || payload == null) {
       return;
     }
-
     try {
       await repository.createWorkout(payload);
       await _load();
       if (!mounted) {
         return;
       }
-      _showMessage('Treino criado com sucesso.');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      _showMessage(error.toString(), error: true);
-    }
-  }
-
-  Future<void> _addExercise(AdminWorkout workout) async {
-    if (_exercises.isEmpty) {
-      _showMessage(
-        'Nao ha exercicios cadastrados. Crie um exercicio personalizado primeiro.',
-        error: true,
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Treino criado com sucesso.')),
       );
-      return;
-    }
-
-    final repository = AppScope.of(context).adminRepository;
-    final payload = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => _WorkoutExerciseDialog(exercises: _exercises),
-    );
-    if (!mounted || payload == null) {
-      return;
-    }
-
-    try {
-      await repository.addWorkoutExercise(workout.id, payload);
-      await _load();
-      if (!mounted) {
-        return;
-      }
-      _showMessage('Exercicio adicionado ao treino.');
     } catch (error) {
       if (!mounted) {
         return;
       }
-      _showMessage(error.toString(), error: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
-  Future<void> _createCustomExercise() async {
-    final repository = AppScope.of(context).adminRepository;
+  Future<void> _createExercise() async {
+    final repository = AppScope.of(context).workoutRepository;
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => const _ExerciseDialog(),
@@ -134,158 +140,606 @@ class _WorkoutPlannerPageState extends State<WorkoutPlannerPage> {
       if (!mounted) {
         return;
       }
-      _showMessage('Exercicio criado e disponivel para seus treinos.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Exercicio personalizado cadastrado.')),
+      );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      _showMessage(error.toString(), error: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
-  void _showMessage(String message, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
-      ),
+  Future<void> _deleteWorkout(AdminWorkout workout) async {
+    final repository = AppScope.of(context).workoutRepository;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Excluir treino'),
+          content: Text('Deseja excluir "${workout.nome}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Excluir'),
+            ),
+          ],
+        );
+      },
     );
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await repository.deleteWorkout(workout.id);
+      await _load();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _saveWorkoutOrder() async {
+    await AppScope.of(context).workoutRepository.saveWorkoutOrder(
+      _userId,
+      _workouts.map((item) => item.id).toList(),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _orderingWorkouts = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Ordem dos treinos atualizada.')),
+    );
+  }
+
+  List<DateTime> get _weekDates {
+    final now = DateTime.now();
+    final start = now.subtract(Duration(days: now.weekday - 1));
+    return List.generate(7, (index) => start.add(Duration(days: index)));
+  }
+
+  int get _completedWeekDays {
+    final week = _weekDates;
+    final completedDates = _records
+        .where((record) => record.concluido && record.finalizadoEm != null)
+        .map((record) => DateUtils.dateOnly(record.finalizadoEm!))
+        .toSet();
+    return week
+        .where(
+          (day) =>
+              day.weekday <= DateTime.friday &&
+              completedDates.contains(DateUtils.dateOnly(day)),
+        )
+        .length;
   }
 
   @override
   Widget build(BuildContext context) {
-    final session = AppScope.of(context).authRepository.currentSession!;
-    final formatter = DateFormat('dd/MM/yyyy HH:mm');
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Meu treino'),
-        actions: [
-          TextButton.icon(
-            onPressed: _createCustomExercise,
-            icon: const Icon(Icons.fitness_center),
-            label: const Text('Novo exercicio'),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(20),
+      backgroundColor: const Color(0xFF353958),
+      body: SafeArea(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            : Column(
                 children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Monte sua rotina',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Use exercicios ja existentes ou cadastre um personalizado quando precisar. Usuario atual: ${session.user.nome}.',
-                          ),
-                          const SizedBox(height: 16),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              FilledButton.icon(
-                                onPressed: _createWorkout,
-                                icon: const Icon(Icons.add),
-                                label: const Text('Criar treino'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: _createCustomExercise,
-                                icon: const Icon(Icons.auto_awesome),
-                                label: const Text(
-                                  'Adicionar exercicio personalizado',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                  _PlannerHeader(
+                    weekDates: _weekDates,
+                    completedDays: _completedWeekDays,
+                    onCreateWorkout: _createWorkout,
+                    onCreateExercise: _createExercise,
+                    onToggleOrdering: () {
+                      setState(() {
+                        _orderingWorkouts = !_orderingWorkouts;
+                      });
+                    },
+                    orderingWorkouts: _orderingWorkouts,
+                    exerciseCount: _exercises.length,
+                  ),
+                  TabBar(
+                    controller: _tabController,
+                    indicatorColor: const Color(0xFF4F87FF),
+                    labelColor: Colors.white,
+                    unselectedLabelColor: const Color(0xFFBAC1EA),
+                    tabs: const [
+                      Tab(text: 'Planos'),
+                      Tab(text: 'Historico'),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [_buildPlansTab(), _buildHistoryTab()],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  if (_workouts.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'Voce ainda nao possui treinos. Crie o primeiro para comecar.',
-                        ),
-                      ),
-                    )
-                  else
-                    for (final workout in _workouts)
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          workout.nome,
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.titleLarge,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${workout.tipoTreino} • ${workout.dataTreino != null ? formatter.format(workout.dataTreino!) : 'Sem agenda'}',
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: () => _addExercise(workout),
-                                    icon: const Icon(Icons.add),
-                                    label: const Text('Adicionar exercicio'),
-                                  ),
-                                ],
-                              ),
-                              if ((workout.descricao ?? '').isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Text(workout.descricao!),
-                              ],
-                              const SizedBox(height: 16),
-                              if (workout.exercicios.isEmpty)
-                                const Text('Nenhum exercicio neste treino.')
-                              else
-                                for (final exercise in workout.exercicios)
-                                  ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: CircleAvatar(
-                                      child: Text('${exercise.ordem}'),
-                                    ),
-                                    title: Text(exercise.exercicioNome),
-                                    subtitle: Text(
-                                      '${exercise.series} series • ${exercise.repeticoes} reps • ${exercise.dificuldade}${exercise.carga != null ? ' • ${exercise.carga!.toStringAsFixed(1)} kg' : ''}',
-                                    ),
-                                  ),
-                            ],
-                          ),
-                        ),
-                      ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _buildPlansTab() {
+    if (_workouts.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.all(20),
+        children: const [
+          _EmptyCard(
+            message:
+                'Voce ainda nao possui treinos. Crie um plano e adicione exercicios para comecar.',
+          ),
+        ],
+      );
+    }
+
+    if (_orderingWorkouts) {
+      return Column(
+        children: [
+          Expanded(
+            child: ReorderableListView.builder(
+              padding: const EdgeInsets.all(20),
+              itemCount: _workouts.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() {
+                  if (newIndex > oldIndex) {
+                    newIndex -= 1;
+                  }
+                  final item = _workouts.removeAt(oldIndex);
+                  _workouts.insert(newIndex, item);
+                });
+              },
+              itemBuilder: (context, index) {
+                final workout = _workouts[index];
+                return _WorkoutPlanTile(
+                  key: ValueKey(workout.id),
+                  workout: workout,
+                  onTap: () => _openWorkout(workout),
+                  onDelete: () => _deleteWorkout(workout),
+                  showDragHandle: true,
+                );
+              },
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _saveWorkoutOrder,
+                child: const Text('Salvar ordem dos treinos'),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          for (final workout in _workouts)
+            _WorkoutPlanTile(
+              workout: workout,
+              onTap: () => _openWorkout(workout),
+              onDelete: () => _deleteWorkout(workout),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab() {
+    final records = [..._records]
+      ..sort((a, b) {
+        final aDate = a.finalizadoEm ?? a.iniciadoEm ?? a.planejadoPara;
+        final bDate = b.finalizadoEm ?? b.iniciadoEm ?? b.planejadoPara;
+        if (aDate == null || bDate == null) {
+          return 0;
+        }
+        return bDate.compareTo(aDate);
+      });
+
+    if (records.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.all(20),
+        children: const [
+          _EmptyCard(
+            message:
+                'Seu historico de treinos aparecera aqui depois das primeiras execucoes.',
+          ),
+        ],
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        _HistoryMonthBanner(records: records),
+        const SizedBox(height: 16),
+        for (final record in records) _HistoryRecordTile(record: record),
+      ],
+    );
+  }
+}
+
+class _PlannerHeader extends StatelessWidget {
+  const _PlannerHeader({
+    required this.weekDates,
+    required this.completedDays,
+    required this.onCreateWorkout,
+    required this.onCreateExercise,
+    required this.onToggleOrdering,
+    required this.orderingWorkouts,
+    required this.exerciseCount,
+  });
+
+  final List<DateTime> weekDates;
+  final int completedDays;
+  final VoidCallback onCreateWorkout;
+  final VoidCallback onCreateExercise;
+  final VoidCallback onToggleOrdering;
+  final bool orderingWorkouts;
+  final int exerciseCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final labels = ['seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sab.', 'dom.'];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Treinos',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 42,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              _CircleIconButton(
+                icon: orderingWorkouts ? Icons.check : Icons.reorder,
+                onTap: onToggleOrdering,
+              ),
+              const SizedBox(width: 12),
+              _CircleIconButton(icon: Icons.add, onTap: onCreateWorkout),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (var i = 0; i < weekDates.length; i++)
+                _WeekDayChip(
+                  label: labels[i],
+                  date: weekDates[i],
+                  active: DateUtils.isSameDay(weekDates[i], now),
+                  completed:
+                      weekDates[i].weekday <= DateTime.friday &&
+                      weekDates[i].isBefore(now.add(const Duration(days: 1))),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Icon(Icons.flag, color: Colors.white70),
+              const SizedBox(width: 8),
+              Text(
+                '$completedDays/5 dias concluidos',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onCreateExercise,
+                icon: const Icon(Icons.fitness_center),
+                label: Text('Exercicios ($exerciseCount)'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeekDayChip extends StatelessWidget {
+  const _WeekDayChip({
+    required this.label,
+    required this.date,
+    required this.active,
+    required this.completed,
+  });
+
+  final String label;
+  final DateTime date;
+  final bool active;
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active
+        ? const Color(0xFF4D8EFF)
+        : completed
+        ? const Color(0xFF5E7AC5)
+        : const Color(0xFF52556F);
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: active ? const Color(0xFF67A1FF) : Colors.white,
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border: active ? Border.all(color: const Color(0xFF92B8FF)) : null,
+          ),
+          child: Center(
+            child: Text(
+              '${date.day}',
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkoutPlanTile extends StatelessWidget {
+  const _WorkoutPlanTile({
+    super.key,
+    required this.workout,
+    required this.onTap,
+    required this.onDelete,
+    this.showDragHandle = false,
+  });
+
+  final AdminWorkout workout;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final bool showDragHandle;
+
+  @override
+  Widget build(BuildContext context) {
+    final formatter = DateFormat('dd/MM');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF4B506F),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 14,
+        ),
+        leading: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: const Color(0xFF18B3A1),
+          ),
+          child: Text(
+            workout.tipoTreino,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        title: Text(
+          workout.nome,
+          style: const TextStyle(color: Colors.white, fontSize: 20),
+        ),
+        subtitle: Text(
+          '${workout.exercicios.length} exercicios • ${workout.dataTreino != null ? formatter.format(workout.dataTreino!) : 'sem agenda'}',
+          style: const TextStyle(color: Color(0xFFD3D8F2)),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showDragHandle)
+              const Padding(
+                padding: EdgeInsets.only(right: 6),
+                child: Icon(Icons.drag_handle, color: Colors.white70),
+              ),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'delete') {
+                  onDelete();
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Text('Excluir treino'),
+                ),
+              ],
+              icon: const Icon(Icons.more_horiz, color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryMonthBanner extends StatelessWidget {
+  const _HistoryMonthBanner({required this.records});
+
+  final List<WorkoutRecord> records;
+
+  @override
+  Widget build(BuildContext context) {
+    final formatter = DateFormat('MMMM yyyy', 'pt_BR');
+    final selected =
+        records.first.finalizadoEm ??
+        records.first.iniciadoEm ??
+        records.first.planejadoPara ??
+        DateTime.now();
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF4B506F),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Historico',
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              formatter.format(selected),
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryRecordTile extends StatelessWidget {
+  const _HistoryRecordTile({required this.record});
+
+  final WorkoutRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    final date =
+        record.finalizadoEm ??
+        record.iniciadoEm ??
+        record.planejadoPara ??
+        DateTime.now();
+    final formatter = DateFormat("EEEE, d 'de' MMMM", 'pt_BR');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF4B506F),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: record.concluido
+                      ? const Color(0xFF18B3A1)
+                      : const Color(0xFF4D8EFF),
+                ),
+              ),
+              Container(width: 3, height: 70, color: const Color(0xFF4D8EFF)),
+            ],
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  formatter.format(date),
+                  style: const TextStyle(
+                    color: Color(0xFFD3D8F2),
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  record.treinoNome,
+                  style: const TextStyle(color: Colors.white, fontSize: 20),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${record.execucoes.where((item) => item.concluido).length}/${record.execucoes.length} exercicios concluidos • ${record.status}',
+                  style: const TextStyle(color: Color(0xFFD3D8F2)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CircleIconButton extends StatelessWidget {
+  const _CircleIconButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFF5663A0)),
+          color: const Color(0xFF3A3E5D),
+        ),
+        child: Icon(icon, color: Colors.white),
+      ),
     );
   }
 }
@@ -301,15 +755,23 @@ class _WorkoutDialog extends StatefulWidget {
 
 class _WorkoutDialogState extends State<_WorkoutDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _notesController = TextEditingController();
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
+  late final TextEditingController _notesController;
 
   String _tipo = 'A';
   bool _ativo = true;
   bool _publico = false;
   bool _recorrente = true;
   DateTime _dataTreino = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _descriptionController = TextEditingController();
+    _notesController = TextEditingController();
+  }
 
   @override
   void dispose() {
@@ -455,126 +917,6 @@ class _WorkoutDialogState extends State<_WorkoutDialog> {
   }
 }
 
-class _WorkoutExerciseDialog extends StatefulWidget {
-  const _WorkoutExerciseDialog({required this.exercises});
-
-  final List<AdminExercise> exercises;
-
-  @override
-  State<_WorkoutExerciseDialog> createState() => _WorkoutExerciseDialogState();
-}
-
-class _WorkoutExerciseDialogState extends State<_WorkoutExerciseDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _orderController = TextEditingController(text: '1');
-  final _seriesController = TextEditingController(text: '4');
-  final _repsController = TextEditingController(text: '10');
-  final _loadController = TextEditingController();
-
-  int? _exerciseId;
-  String _dificuldade = 'MODERADA';
-
-  @override
-  void initState() {
-    super.initState();
-    _exerciseId = widget.exercises.first.id;
-  }
-
-  @override
-  void dispose() {
-    _orderController.dispose();
-    _seriesController.dispose();
-    _repsController.dispose();
-    _loadController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Adicionar exercicio'),
-      content: SizedBox(
-        width: 420,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<int>(
-                  initialValue: _exerciseId,
-                  decoration: const InputDecoration(labelText: 'Exercicio'),
-                  items: [
-                    for (final item in widget.exercises)
-                      DropdownMenuItem<int>(
-                        value: item.id,
-                        child: Text(item.nome),
-                      ),
-                  ],
-                  onChanged: (value) => setState(() => _exerciseId = value),
-                ),
-                const SizedBox(height: 12),
-                _NumberField(controller: _orderController, label: 'Ordem'),
-                const SizedBox(height: 12),
-                _NumberField(controller: _seriesController, label: 'Series'),
-                const SizedBox(height: 12),
-                _NumberField(controller: _repsController, label: 'Repeticoes'),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _loadController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(labelText: 'Carga (kg)'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _dificuldade,
-                  decoration: const InputDecoration(labelText: 'Dificuldade'),
-                  items: const [
-                    DropdownMenuItem(value: 'LEVE', child: Text('LEVE')),
-                    DropdownMenuItem(
-                      value: 'MODERADA',
-                      child: Text('MODERADA'),
-                    ),
-                    DropdownMenuItem(value: 'ALTA', child: Text('ALTA')),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => _dificuldade = value ?? 'MODERADA'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (!_formKey.currentState!.validate() || _exerciseId == null) {
-              return;
-            }
-            Navigator.of(context).pop({
-              'exercicioId': _exerciseId,
-              'ordem': int.parse(_orderController.text),
-              'series': int.parse(_seriesController.text),
-              'repeticoes': int.parse(_repsController.text),
-              'carga': _loadController.text.trim().isEmpty
-                  ? null
-                  : double.parse(_loadController.text.replaceAll(',', '.')),
-              'dificuldade': _dificuldade,
-            });
-          },
-          child: const Text('Adicionar'),
-        ),
-      ],
-    );
-  }
-}
-
 class _ExerciseDialog extends StatefulWidget {
   const _ExerciseDialog();
 
@@ -664,27 +1006,20 @@ class _ExerciseDialogState extends State<_ExerciseDialog> {
   }
 }
 
-class _NumberField extends StatelessWidget {
-  const _NumberField({required this.controller, required this.label});
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.message});
 
-  final TextEditingController controller;
-  final String label;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      decoration: InputDecoration(labelText: label),
-      validator: (value) {
-        if (value == null || value.trim().isEmpty) {
-          return 'Campo obrigatorio';
-        }
-        if (int.tryParse(value) == null) {
-          return 'Informe um numero valido';
-        }
-        return null;
-      },
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF4B506F),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Text(message, style: const TextStyle(color: Colors.white)),
     );
   }
 }
